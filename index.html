@@ -199,11 +199,13 @@
             height: 45%;
             background: linear-gradient(180deg, #1e40af, #3b82f6);
             border-radius: 2px;
-            transform-origin: bottom center;
+            transform-origin: 50% 100%;
             z-index: 10;
             transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: 0 0 10px rgba(30, 64, 175, 0.3);
             bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) rotate(-90deg);
         }
 
         .meter-center {
@@ -215,6 +217,8 @@
             z-index: 15;
             border: 4px solid white;
             bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
             box-shadow: 0 0 15px rgba(30, 64, 175, 0.2);
         }
 
@@ -225,6 +229,8 @@
             font-weight: 700;
             color: #1e40af;
             bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
             text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
@@ -531,7 +537,8 @@
             distance: 0,
             relayState: false,
             manualMode: false,
-            lastUpdate: null
+            lastUpdate: null,
+            stateRequestSent: false
         };
 
         // DOM Elements
@@ -590,6 +597,9 @@
             });
             
             showAlert('Connected to MQTT broker successfully!', 'success');
+            
+            // Request current state from ESP32
+            requestCurrentState();
         }
 
         function onConnectFailure(error) {
@@ -655,11 +665,31 @@
             console.log('System status:', data);
         }
 
+        function requestCurrentState() {
+            if (!appState.connected || appState.stateRequestSent) return;
+            
+            // Send a status request command to ESP32
+            const statusRequest = {
+                state: "STATUS",
+                timestamp: Date.now()
+            };
+            
+            try {
+                const message = new Paho.MQTT.Message(JSON.stringify(statusRequest));
+                message.destinationName = TOPICS.relayControl;
+                client.send(message);
+                appState.stateRequestSent = true;
+                console.log('Requested current state from ESP32');
+            } catch (error) {
+                console.error('Failed to request current state:', error);
+            }
+        }
+
         function updateMeter(percentage) {
             // Convert percentage to rotation for 180-degree meter
-            // 0% = 0° (left), 50% = 90° (center), 100% = 180° (right)
-            const rotation = (percentage / 100) * 180;
-            elements.meterNeedle.style.transform = `rotate(${rotation}deg)`;
+            // 0% = -90° (left), 50% = 0° (center), 100% = 90° (right)
+            const rotation = -90 + (percentage / 100) * 180;
+            elements.meterNeedle.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
             elements.meterValue.textContent = `${percentage.toFixed(1)}%`;
         }
 
@@ -761,7 +791,7 @@
                 client.send(message);
                 console.log('Sent relay command:', command);
                 
-                if (state !== 'AUTO') {
+                if (state !== 'AUTO' && state !== 'STATUS') {
                     showAlert(`Pump turned ${state}`, 'success');
                 }
             } catch (error) {
